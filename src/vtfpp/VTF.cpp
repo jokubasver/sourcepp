@@ -537,6 +537,13 @@ VTF::VTF(std::vector<std::byte>&& vtfData, bool parseHeaderOnly, bool hdr)
 		if (this->flags & FLAG_V0_NO_MIP && this->mipCount > 1) {
 			this->removeFlags(FLAG_V0_NO_MIP);
 		}
+		// Convert ASTC file format values (41-88) to internal SOURCEPP_ASTC* formats (PC platform only)
+		if (this->platform == PLATFORM_PC) {
+			const auto rawFormat = static_cast<int32_t>(this->format);
+			if (rawFormat >= 41 && rawFormat <= 88) {
+				this->format = ImageFormatDetails::astcFromFileFormat(rawFormat);
+			}
+		}
 	};
 
 	switch (this->platform) {
@@ -2480,6 +2487,10 @@ std::vector<std::byte> VTF::bake() const {
 		bakeFormat = ImageFormat::BGRA8888;
 	} else if (bakeFormat == ImageFormat::SOURCEPP_RGBA16161616_HDR || bakeFormat == ImageFormat::SOURCEPP_CONSOLE_RGBA16161616_HDR) {
 		bakeFormat = ImageFormat::RGBA16161616;
+	}
+	// Convert internal SOURCEPP_ASTC* formats back to file format values (41-88)
+	if (ImageFormatDetails::isASTC(bakeFormat)) {
+		bakeFormat = static_cast<ImageFormat>(ImageFormatDetails::astcToFileFormat(bakeFormat));
 	}
 
 	switch (this->platform) {

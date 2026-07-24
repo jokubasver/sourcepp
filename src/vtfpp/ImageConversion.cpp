@@ -30,6 +30,10 @@
 #include <compressonator.h>
 #endif
 
+#ifdef VTFPP_BUILD_WITH_ASTCENC
+#include <astcenc.h>
+#endif
+
 #ifdef VTFPP_SUPPORT_QOI
 #define QOI_IMPLEMENTATION
 #define QOI_NO_STDIO
@@ -313,10 +317,176 @@ namespace {
 	return -1;
 }
 
+#ifdef VTFPP_BUILD_WITH_ASTCENC
+[[nodiscard]] std::vector<std::byte> decompressASTC(std::span<const std::byte> imageData, ImageFormat format, uint16_t width, uint16_t height, ImageFormat& outFormat) {
+	const auto [bx, by, bz] = ImageFormatDetails::astcBlockDimensions(format);
+	if (!bx || !by || !bz) {
+		outFormat = ImageFormat::EMPTY;
+		return {};
+	}
+
+	const bool hdr = ImageFormatDetails::astcHDR(format);
+	const auto profile = hdr ? ASTCENC_PRF_HDR : ASTCENC_PRF_LDR;
+
+	astcenc_config config{};
+	if (astcenc_config_init(profile, bx, by, bz, ASTCENC_PRE_FAST, ASTCENC_FLG_DECOMPRESS_ONLY, &config) != ASTCENC_SUCCESS) {
+		outFormat = ImageFormat::EMPTY;
+		return {};
+	}
+
+	astcenc_context* context = nullptr;
+	if (astcenc_context_alloc(&config, 1, &context, nullptr) != ASTCENC_SUCCESS) {
+		outFormat = ImageFormat::EMPTY;
+		return {};
+	}
+
+	outFormat = hdr ? ImageFormat::RGBA32323232F : ImageFormat::RGBA8888;
+	const size_t pixelSize = hdr ? 16 : 4; // 4x float or 4x uint8
+	std::vector<std::byte> out(static_cast<size_t>(width) * height * pixelSize);
+
+	astcenc_image image{};
+	image.dim_x = width;
+	image.dim_y = height;
+	image.dim_z = 1;
+	image.data_type = hdr ? ASTCENC_TYPE_F32 : ASTCENC_TYPE_U8;
+	void* slices[1] = {out.data()};
+	image.data = slices;
+
+	astcenc_swizzle swizzle{ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A};
+
+	const auto status = astcenc_decompress_image(context, reinterpret_cast<const uint8_t*>(imageData.data()), imageData.size(), &image, &swizzle, 0);
+	astcenc_context_free(context);
+
+	if (status != ASTCENC_SUCCESS) {
+		outFormat = ImageFormat::EMPTY;
+		return {};
+	}
+	return out;
+}
+
+[[nodiscard]] std::vector<std::byte> compressASTC(std::span<const std::byte> imageData, ImageFormat inputFormat, ImageFormat astcFormat, uint16_t width, uint16_t height, float quality) {
+	if (imageData.empty() || !width || !height) {
+		return {};
+	}
+
+	const auto [bx, by, bz] = ImageFormatDetails::astcBlockDimensions(astcFormat);
+	if (!bx || !by || !bz) {
+		return {};
+	}
+
+	const bool hdr = ImageFormatDetails::astcHDR(astcFormat);
+	const auto profile = hdr ? ASTCENC_PRF_HDR : ASTCENC_PRF_LDR_SRGB;
+
+	// Map quality [0.0, 1.0] to astcenc presets [0, 100]
+	float astcQuality;
+	if (quality < 0.f) {
+		astcQuality = ASTCENC_PRE_MEDIUM; // default
+	} else {
+		astcQuality = std::clamp(quality, 0.f, 1.f) * 100.f;
+	}
+
+	unsigned int flags = 0;
+	if (!hdr) {
+		flags |= ASTCENC_FLG_USE_DECODE_UNORM8;
+	}
+
+	astcenc_config config{};
+	if (astcenc_config_init(profile, bx, by, bz, astcQuality, flags, &config) != ASTCENC_SUCCESS) {
+		return {};
+	}
+
+	astcenc_context* context = nullptr;
+	if (astcenc_context_alloc(&config, 1, &context, nullptr) != ASTCENC_SUCCESS) {
+		return {};
+	}
+
+	// Prepare input image data in the format astcenc expects
+	const void* pixelData = imageData.data();
+	astcenc_type dataType;
+	std::vector<float> floatData;
+
+	if (hdr && inputFormat == ImageFormat::RGBA32323232F) {
+		dataType = ASTCENC_TYPE_F32;
+	} else if (!hdr && inputFormat == ImageFormat::RGBA8888) {
+		dataType = ASTCENC_TYPE_U8;
+	} else if (!hdr && inputFormat == ImageFormat::RGBA32323232F) {
+		// Convert float [0,1] to U8 for LDR compression
+		const auto* src = reinterpret_cast<const float*>(imageData.data());
+		const size_t pixelCount = static_cast<size_t>(width) * height;
+		std::vector<uint8_t> u8Data(pixelCount * 4);
+		for (size_t i = 0; i < pixelCount * 4; i++) {
+			u8Data[i] = static_cast<uint8_t>(std::clamp(src[i], 0.f, 1.f) * 255.f + 0.5f);
+		}
+		dataType = ASTCENC_TYPE_U8;
+		astcenc_image image{};
+		image.dim_x = width;
+		image.dim_y = height;
+		image.dim_z = 1;
+		image.data_type = dataType;
+		void* slices[1] = {u8Data.data()};
+		image.data = slices;
+
+		astcenc_swizzle swizzle{ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A};
+
+		const size_t outBlocksX = (width + bx - 1) / bx;
+		const size_t outBlocksY = (height + by - 1) / by;
+		const size_t outSize = outBlocksX * outBlocksY * 16;
+		std::vector<std::byte> out(outSize);
+
+		const auto status = astcenc_compress_image(context, &image, &swizzle, reinterpret_cast<uint8_t*>(out.data()), outSize, 0);
+		astcenc_context_free(context);
+
+		if (status != ASTCENC_SUCCESS) {
+			return {};
+		}
+		return out;
+	} else {
+		astcenc_context_free(context);
+		return {};
+	}
+
+	// Validate input data size matches dimensions
+	const size_t expectedInputSize = static_cast<size_t>(width) * height * (hdr ? 16 : 4);
+	if (imageData.size() < expectedInputSize) {
+		astcenc_context_free(context);
+		return {};
+	}
+
+	astcenc_image image{};
+	image.dim_x = width;
+	image.dim_y = height;
+	image.dim_z = 1;
+	image.data_type = dataType;
+	void* slices[1] = {const_cast<void*>(pixelData)};
+	image.data = slices;
+
+	astcenc_swizzle swizzle{ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A};
+
+	const size_t outBlocksX = (width + bx - 1) / bx;
+	const size_t outBlocksY = (height + by - 1) / by;
+	const size_t outSize = outBlocksX * outBlocksY * 16;
+	std::vector<std::byte> out(outSize);
+
+	const auto status = astcenc_compress_image(context, &image, &swizzle, reinterpret_cast<uint8_t*>(out.data()), outSize, 0);
+	astcenc_context_free(context);
+
+	if (status != ASTCENC_SUCCESS) {
+		return {};
+	}
+	return out;
+}
+#endif // VTFPP_BUILD_WITH_ASTCENC
+
 [[nodiscard]] std::vector<std::byte> decompressImageData(std::span<const std::byte> imageData, ImageFormat inFormat, ImageFormat& outFormat, uint16_t width, uint16_t height) {
 	if (imageData.empty() || !ImageFormatDetails::compressed(inFormat) || ImageFormatDetails::compressedHDR(inFormat)) {
 		return {imageData.begin(), imageData.end()};
 	}
+
+#ifdef VTFPP_BUILD_WITH_ASTCENC
+	if (ImageFormatDetails::isASTC(inFormat)) {
+		return decompressASTC(imageData, inFormat, width, height, outFormat);
+	}
+#endif
 
 	uint16_t unpaddedWidth = width, unpaddedHeight = height;
 	if (width % 4 != 0 || height % 4 != 0) {
@@ -392,6 +562,11 @@ namespace {
 }
 
 [[nodiscard]] std::vector<std::byte> compressImageData(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint16_t width, uint16_t height, float quality = ImageConversion::DEFAULT_COMPRESSED_QUALITY) {
+#ifdef VTFPP_BUILD_WITH_ASTCENC
+	if (ImageFormatDetails::isASTC(newFormat)) {
+		return compressASTC(imageData, oldFormat, newFormat, width, height, quality);
+	}
+#endif
 #ifdef VTFPP_BUILD_WITH_COMPRESSONATOR
 	if (imageData.empty()) {
 		return {};
@@ -919,6 +1094,9 @@ std::vector<std::byte> ImageConversion::convertSeveralImageDataToFormat(std::spa
 			for (int face = 0; face < faceCount; face++) {
 				for (int slice = 0; slice < mipDepth; slice++) {
 					if (uint32_t oldOffset, oldLength; ImageFormatDetails::getDataPosition(oldOffset, oldLength, oldFormat, mip, mipCount, frame, frameCount, face, faceCount, width, height, slice, depth)) {
+						if (static_cast<size_t>(oldOffset) + oldLength > imageData.size()) {
+							continue;
+						}
 						const auto convertedImageData = ImageConversion::convertImageDataToFormat({imageData.data() + oldOffset, oldLength}, oldFormat, newFormat, mipWidth, mipHeight, quality);
 						if (uint32_t newOffset, newLength; ImageFormatDetails::getDataPosition(newOffset, newLength, newFormat, mip, mipCount, frame, frameCount, face, faceCount, width, height, slice, depth) && newLength == convertedImageData.size()) {
 							std::memcpy(out.data() + newOffset, convertedImageData.data(), newLength);

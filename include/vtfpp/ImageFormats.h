@@ -86,10 +86,195 @@ enum class ImageFormat : int32_t {
 	SOURCEPP_BGRA8888_HDR = 10000,
 	SOURCEPP_RGBA16161616_HDR,
 	SOURCEPP_CONSOLE_RGBA16161616_HDR,
+
+	// ASTC formats (stored as values 41-88 in VTF files on PC platform)
+	SOURCEPP_ASTC4x4,              // 10003, file value 41
+	SOURCEPP_ASTC4x4_HDR,          // 10004, file value 42
+	// 2D ASTC LDR
+	SOURCEPP_ASTC5x4,              // 10005, file value 43
+	SOURCEPP_ASTC5x5,
+	SOURCEPP_ASTC6x5,
+	SOURCEPP_ASTC6x6,
+	SOURCEPP_ASTC8x5,
+	SOURCEPP_ASTC8x6,
+	SOURCEPP_ASTC8x8,
+	SOURCEPP_ASTC10x5,
+	SOURCEPP_ASTC10x6,
+	SOURCEPP_ASTC10x8,
+	SOURCEPP_ASTC10x10,
+	SOURCEPP_ASTC12x10,
+	SOURCEPP_ASTC12x12,            // 10017, file value 55
+	// 3D ASTC LDR
+	SOURCEPP_ASTC3x3x3,            // 10018, file value 56
+	SOURCEPP_ASTC4x3x3,
+	SOURCEPP_ASTC4x4x3,
+	SOURCEPP_ASTC4x4x4,
+	SOURCEPP_ASTC5x4x4,
+	SOURCEPP_ASTC5x5x4,
+	SOURCEPP_ASTC5x5x5,
+	SOURCEPP_ASTC6x5x5,
+	SOURCEPP_ASTC6x6x5,
+	SOURCEPP_ASTC6x6x6,            // 10027, file value 65
+	// 2D ASTC HDR
+	SOURCEPP_ASTC5x4_HDR,          // 10028, file value 66
+	SOURCEPP_ASTC5x5_HDR,
+	SOURCEPP_ASTC6x5_HDR,
+	SOURCEPP_ASTC6x6_HDR,
+	SOURCEPP_ASTC8x5_HDR,
+	SOURCEPP_ASTC8x6_HDR,
+	SOURCEPP_ASTC8x8_HDR,
+	SOURCEPP_ASTC10x5_HDR,
+	SOURCEPP_ASTC10x6_HDR,
+	SOURCEPP_ASTC10x8_HDR,
+	SOURCEPP_ASTC10x10_HDR,
+	SOURCEPP_ASTC12x10_HDR,
+	SOURCEPP_ASTC12x12_HDR,        // 10040, file value 78
+	// 3D ASTC HDR
+	SOURCEPP_ASTC3x3x3_HDR,        // 10041, file value 79
+	SOURCEPP_ASTC4x3x3_HDR,
+	SOURCEPP_ASTC4x4x3_HDR,
+	SOURCEPP_ASTC4x4x4_HDR,
+	SOURCEPP_ASTC5x4x4_HDR,
+	SOURCEPP_ASTC5x5x4_HDR,
+	SOURCEPP_ASTC5x5x5_HDR,
+	SOURCEPP_ASTC6x5x5_HDR,
+	SOURCEPP_ASTC6x6x5_HDR,
+	SOURCEPP_ASTC6x6x6_HDR,        // 10050, file value 88
 	// endregion
 };
 
 namespace ImageFormatDetails {
+
+/**
+ * Check if the given format is an ASTC format.
+ * @param format The format to check.
+ * @return True if the given format is ASTC.
+ */
+[[nodiscard]] constexpr bool isASTC(ImageFormat format) {
+	return static_cast<int32_t>(format) >= static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC4x4) &&
+	       static_cast<int32_t>(format) <= static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC6x6x6_HDR);
+}
+
+/**
+ * Check if the given ASTC format is an HDR format.
+ * @param format The format to check. Must be an ASTC format.
+ * @return True if the given ASTC format is HDR.
+ */
+[[nodiscard]] constexpr bool astcHDR(ImageFormat format) {
+	return (static_cast<int32_t>(format) >= static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC4x4_HDR) &&
+	        static_cast<int32_t>(format) <= static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC4x4_HDR)) ||
+	       (static_cast<int32_t>(format) >= static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC5x4_HDR) &&
+	        static_cast<int32_t>(format) <= static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC6x6x6_HDR));
+}
+
+/**
+ * Get the ASTC block dimensions for the given format.
+ * @param format The ASTC format to get block dimensions for.
+ * @return A tuple of (blockX, blockY, blockZ). Returns (0, 0, 0) if not an ASTC format.
+ */
+[[nodiscard]] constexpr std::tuple<uint8_t, uint8_t, uint8_t> astcBlockDimensions(ImageFormat format) {
+	switch (format) {
+		using enum ImageFormat;
+		case SOURCEPP_ASTC4x4:
+		case SOURCEPP_ASTC4x4_HDR:
+			return {4, 4, 1};
+		case SOURCEPP_ASTC5x4:
+		case SOURCEPP_ASTC5x4_HDR:
+			return {5, 4, 1};
+		case SOURCEPP_ASTC5x5:
+		case SOURCEPP_ASTC5x5_HDR:
+			return {5, 5, 1};
+		case SOURCEPP_ASTC6x5:
+		case SOURCEPP_ASTC6x5_HDR:
+			return {6, 5, 1};
+		case SOURCEPP_ASTC6x6:
+		case SOURCEPP_ASTC6x6_HDR:
+			return {6, 6, 1};
+		case SOURCEPP_ASTC8x5:
+		case SOURCEPP_ASTC8x5_HDR:
+			return {8, 5, 1};
+		case SOURCEPP_ASTC8x6:
+		case SOURCEPP_ASTC8x6_HDR:
+			return {8, 6, 1};
+		case SOURCEPP_ASTC8x8:
+		case SOURCEPP_ASTC8x8_HDR:
+			return {8, 8, 1};
+		case SOURCEPP_ASTC10x5:
+		case SOURCEPP_ASTC10x5_HDR:
+			return {10, 5, 1};
+		case SOURCEPP_ASTC10x6:
+		case SOURCEPP_ASTC10x6_HDR:
+			return {10, 6, 1};
+		case SOURCEPP_ASTC10x8:
+		case SOURCEPP_ASTC10x8_HDR:
+			return {10, 8, 1};
+		case SOURCEPP_ASTC10x10:
+		case SOURCEPP_ASTC10x10_HDR:
+			return {10, 10, 1};
+		case SOURCEPP_ASTC12x10:
+		case SOURCEPP_ASTC12x10_HDR:
+			return {12, 10, 1};
+		case SOURCEPP_ASTC12x12:
+		case SOURCEPP_ASTC12x12_HDR:
+			return {12, 12, 1};
+		case SOURCEPP_ASTC3x3x3:
+		case SOURCEPP_ASTC3x3x3_HDR:
+			return {3, 3, 3};
+		case SOURCEPP_ASTC4x3x3:
+		case SOURCEPP_ASTC4x3x3_HDR:
+			return {4, 3, 3};
+		case SOURCEPP_ASTC4x4x3:
+		case SOURCEPP_ASTC4x4x3_HDR:
+			return {4, 4, 3};
+		case SOURCEPP_ASTC4x4x4:
+		case SOURCEPP_ASTC4x4x4_HDR:
+			return {4, 4, 4};
+		case SOURCEPP_ASTC5x4x4:
+		case SOURCEPP_ASTC5x4x4_HDR:
+			return {5, 4, 4};
+		case SOURCEPP_ASTC5x5x4:
+		case SOURCEPP_ASTC5x5x4_HDR:
+			return {5, 5, 4};
+		case SOURCEPP_ASTC5x5x5:
+		case SOURCEPP_ASTC5x5x5_HDR:
+			return {5, 5, 5};
+		case SOURCEPP_ASTC6x5x5:
+		case SOURCEPP_ASTC6x5x5_HDR:
+			return {6, 5, 5};
+		case SOURCEPP_ASTC6x6x5:
+		case SOURCEPP_ASTC6x6x5_HDR:
+			return {6, 6, 5};
+		case SOURCEPP_ASTC6x6x6:
+		case SOURCEPP_ASTC6x6x6_HDR:
+			return {6, 6, 6};
+		default:
+			return {0, 0, 0};
+	}
+}
+
+/**
+ * Convert a VTF file format value (41-88) to the internal SOURCEPP_ASTC* format.
+ * @param fileFormat The raw format value from the VTF file.
+ * @return The internal ASTC format, or the input unchanged if not in ASTC range.
+ */
+[[nodiscard]] constexpr ImageFormat astcFromFileFormat(int32_t fileFormat) {
+	if (fileFormat >= 41 && fileFormat <= 88) {
+		return static_cast<ImageFormat>(fileFormat - 41 + static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC4x4));
+	}
+	return static_cast<ImageFormat>(fileFormat);
+}
+
+/**
+ * Convert an internal SOURCEPP_ASTC* format to the VTF file format value (41-88).
+ * @param format The internal ASTC format.
+ * @return The file format value, or the input's integer value unchanged if not ASTC.
+ */
+[[nodiscard]] constexpr int32_t astcToFileFormat(ImageFormat format) {
+	if (isASTC(format)) {
+		return static_cast<int32_t>(format) - static_cast<int32_t>(ImageFormat::SOURCEPP_ASTC4x4) + 41;
+	}
+	return static_cast<int32_t>(format);
+}
 
 /**
  * Get the number of bits of precision of the red channel in the given format.
@@ -98,6 +283,9 @@ namespace ImageFormatDetails {
  * is returned if the given format is compressed.
  */
 [[nodiscard]] constexpr int8_t red(ImageFormat format) {
+	if (isASTC(format)) {
+		return -1;
+	}
 	switch (format) {
 		using enum ImageFormat;
 		case R32F:
@@ -208,6 +396,9 @@ namespace ImageFormatDetails {
  * is returned if the given format is compressed.
  */
 [[nodiscard]] constexpr int8_t green(ImageFormat format) {
+	if (isASTC(format)) {
+		return -1;
+	}
 	switch (format) {
 		using enum ImageFormat;
 		case RG3232F:
@@ -319,6 +510,9 @@ namespace ImageFormatDetails {
  * is returned if the given format is compressed.
  */
 [[nodiscard]] constexpr int8_t blue(ImageFormat format) {
+	if (isASTC(format)) {
+		return -1;
+	}
 	switch (format) {
 		using enum ImageFormat;
 		case RGB323232F:
@@ -429,6 +623,9 @@ namespace ImageFormatDetails {
  * is returned if the given format is compressed.
  */
 [[nodiscard]] constexpr int8_t alpha(ImageFormat format) {
+	if (isASTC(format)) {
+		return -1;
+	}
 	switch (format) {
 		using enum ImageFormat;
 		case RGBA32323232F:
@@ -624,6 +821,9 @@ namespace ImageFormatDetails {
  * RGBA32323232F is used for formats that are too large for both the previous two.
  */
 [[nodiscard]] constexpr ImageFormat containerFormat(ImageFormat format) {
+	if (isASTC(format)) {
+		return astcHDR(format) ? ImageFormat::RGBA32323232F : ImageFormat::RGBA8888;
+	}
 	switch (format) {
 		using enum ImageFormat;
 		case R32F:
@@ -744,6 +944,9 @@ namespace ImageFormatDetails {
  * @return True if the format can store transparency.
  */
 [[nodiscard]] constexpr bool transparent(ImageFormat format) {
+	if (isASTC(format)) {
+		return true; // ASTC always encodes RGBA
+	}
 	const auto a = alpha(format);
 	if (a < 0) {
 		switch (format) {
@@ -959,6 +1162,10 @@ namespace ImageFormatDetails {
  * @return The length in bytes of a texture containing the given format, width, height, and depth.
  */
 [[nodiscard]] constexpr uint32_t getDataLength(ImageFormat format, uint16_t width, uint16_t height, uint16_t depth = 1) {
+	if (isASTC(format)) {
+		const auto [bx, by, bz] = astcBlockDimensions(format);
+		return ((width + bx - 1) / bx) * ((height + by - 1) / by) * ((depth + bz - 1) / bz) * 16;
+	}
 	if (ImageFormatDetails::compressed(format) && !ImageFormatDetails::compressedHDR(format)) {
 		return ((width + 3) / 4) * ((height + 3) / 4) * depth * bpp(format) * 2;
 	}
