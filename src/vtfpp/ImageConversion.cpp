@@ -364,7 +364,7 @@ namespace {
 	return out;
 }
 
-[[nodiscard]] std::vector<std::byte> compressASTC(std::span<const std::byte> imageData, ImageFormat inputFormat, ImageFormat astcFormat, uint16_t width, uint16_t height, float quality) {
+[[nodiscard]] std::vector<std::byte> compressASTC(std::span<const std::byte> imageData, ImageFormat inputFormat, ImageFormat astcFormat, uint16_t width, uint16_t height, float quality, bool srgb) {
 	if (imageData.empty() || !width || !height) {
 		return {};
 	}
@@ -375,7 +375,9 @@ namespace {
 	}
 
 	const bool hdr = ImageFormatDetails::astcHDR(astcFormat);
-	const auto profile = hdr ? ASTCENC_PRF_HDR : ASTCENC_PRF_LDR_SRGB;
+	// The LDR profile must match how the GPU will decode the texture: an sRGB
+	// ASTC format for color, a plain (linear) one for normal maps and masks.
+	const auto profile = hdr ? ASTCENC_PRF_HDR : srgb ? ASTCENC_PRF_LDR_SRGB : ASTCENC_PRF_LDR;
 
 	// Map quality [0.0, 1.0] to astcenc presets [0, 100]
 	float astcQuality;
@@ -386,7 +388,9 @@ namespace {
 	}
 
 	unsigned int flags = 0;
-	if (!hdr) {
+	if (!hdr && srgb) {
+		// sRGB decodes to 8 bits anyway. Linear LDR decodes at full precision
+		// unless the application enables GL_EXT_texture_compression_astc_decode_mode.
 		flags |= ASTCENC_FLG_USE_DECODE_UNORM8;
 	}
 
@@ -561,10 +565,10 @@ namespace {
 	return {};
 }
 
-[[nodiscard]] std::vector<std::byte> compressImageData(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint16_t width, uint16_t height, float quality = ImageConversion::DEFAULT_COMPRESSED_QUALITY) {
+[[nodiscard]] std::vector<std::byte> compressImageData(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint16_t width, uint16_t height, float quality = ImageConversion::DEFAULT_COMPRESSED_QUALITY, bool srgb = true) {
 #ifdef VTFPP_BUILD_WITH_ASTCENC
 	if (ImageFormatDetails::isASTC(newFormat)) {
-		return compressASTC(imageData, oldFormat, newFormat, width, height, quality);
+		return compressASTC(imageData, oldFormat, newFormat, width, height, quality, srgb);
 	}
 #endif
 #ifdef VTFPP_BUILD_WITH_COMPRESSONATOR
@@ -970,7 +974,7 @@ namespace {
 
 } // namespace
 
-std::vector<std::byte> ImageConversion::convertImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint16_t width, uint16_t height, float quality) {
+std::vector<std::byte> ImageConversion::convertImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint16_t width, uint16_t height, float quality, bool srgb) {
 	if (imageData.empty() || oldFormat == ImageFormat::EMPTY) {
 		return {};
 	}
@@ -1065,7 +1069,7 @@ std::vector<std::byte> ImageConversion::convertImageDataToFormat(std::span<const
 			default:                                             SOURCEPP_DEBUG_BREAK; return {};
 		}
 	} else if (ImageFormatDetails::compressed(newFormat)) {
-		newData = ::compressImageData(newData, intermediaryNewFormat, newFormat, width, height, quality);
+		newData = ::compressImageData(newData, intermediaryNewFormat, newFormat, width, height, quality, srgb);
 	} else {
 		switch (intermediaryNewFormat) {
 			case ImageFormat::RGBA8888:      newData = ::convertImageDataFromRGBA8888(newData, newFormat);      break;
@@ -1078,7 +1082,7 @@ std::vector<std::byte> ImageConversion::convertImageDataToFormat(std::span<const
 	return newData;
 }
 
-std::vector<std::byte> ImageConversion::convertSeveralImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint8_t mipCount, uint16_t frameCount, uint8_t faceCount, uint16_t width, uint16_t height, uint16_t depth, float quality) {
+std::vector<std::byte> ImageConversion::convertSeveralImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint8_t mipCount, uint16_t frameCount, uint8_t faceCount, uint16_t width, uint16_t height, uint16_t depth, float quality, bool srgb) {
 	if (imageData.empty() || oldFormat == ImageFormat::EMPTY) {
 		return {};
 	}
@@ -1097,7 +1101,7 @@ std::vector<std::byte> ImageConversion::convertSeveralImageDataToFormat(std::spa
 						if (static_cast<size_t>(oldOffset) + oldLength > imageData.size()) {
 							continue;
 						}
-						const auto convertedImageData = ImageConversion::convertImageDataToFormat({imageData.data() + oldOffset, oldLength}, oldFormat, newFormat, mipWidth, mipHeight, quality);
+						const auto convertedImageData = ImageConversion::convertImageDataToFormat({imageData.data() + oldOffset, oldLength}, oldFormat, newFormat, mipWidth, mipHeight, quality, srgb);
 						if (uint32_t newOffset, newLength; ImageFormatDetails::getDataPosition(newOffset, newLength, newFormat, mip, mipCount, frame, frameCount, face, faceCount, width, height, slice, depth) && newLength == convertedImageData.size()) {
 							std::memcpy(out.data() + newOffset, convertedImageData.data(), newLength);
 						}

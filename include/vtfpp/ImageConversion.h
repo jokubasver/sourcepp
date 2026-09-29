@@ -17,10 +17,12 @@ namespace vtfpp::ImageConversion {
 constexpr float DEFAULT_COMPRESSED_QUALITY = -1.f;
 
 /// Converts an image from one format to another.
-[[nodiscard]] std::vector<std::byte> convertImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint16_t width, uint16_t height, float quality = DEFAULT_COMPRESSED_QUALITY);
+/// srgb only affects LDR ASTC targets: it selects whether the encoder optimizes
+/// for sRGB decoding (color textures) or linear decoding (normal maps, masks).
+[[nodiscard]] std::vector<std::byte> convertImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint16_t width, uint16_t height, float quality = DEFAULT_COMPRESSED_QUALITY, bool srgb = true);
 
-/// Converts several images from one format to another.
-[[nodiscard]] std::vector<std::byte> convertSeveralImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint8_t mipCount, uint16_t frameCount, uint8_t faceCount, uint16_t width, uint16_t height, uint16_t depth, float quality = DEFAULT_COMPRESSED_QUALITY);
+/// Converts several images from one format to another. See convertImageDataToFormat for srgb.
+[[nodiscard]] std::vector<std::byte> convertSeveralImageDataToFormat(std::span<const std::byte> imageData, ImageFormat oldFormat, ImageFormat newFormat, uint8_t mipCount, uint16_t frameCount, uint8_t faceCount, uint16_t width, uint16_t height, uint16_t depth, float quality = DEFAULT_COMPRESSED_QUALITY, bool srgb = true);
 
 /// Converts an HDRI into six cubemap (or skybox) faces. The output image data is in the same image format as the input.
 /// If in cubemap mode, the output images have the following order: front, back, left, right, down, up.

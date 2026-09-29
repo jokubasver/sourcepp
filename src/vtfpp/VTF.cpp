@@ -34,6 +34,13 @@ using namespace vtfpp;
 
 namespace {
 
+// Color profile for encoding a VTF's image data when the target is LDR ASTC.
+// Ports that read bit 6 as sRGB on every VTF version (TOGLES) set it on 7.2
+// files too, where isSRGB() ignores it, so both are honored.
+[[nodiscard]] bool encodeASTCAsSRGB(const VTF& vtf) {
+	return vtf.isSRGB() || (vtf.getFlags() & VTF::FLAG_V4_SRGB);
+}
+
 [[nodiscard]] std::vector<std::byte> compressData(std::span<const std::byte> data, int16_t level, CompressionMethod method) {
 	switch (method) {
 		using enum CompressionMethod;
@@ -1347,7 +1354,7 @@ void VTF::setFormat(ImageFormat newFormat, ImageConversion::ResizeFilter filter,
 	}
 
 	if (const auto* fallbackResource = this->getResource(Resource::TYPE_FALLBACK_DATA)) {
-		const auto fallbackConverted = ImageConversion::convertSeveralImageDataToFormat(fallbackResource->data, oldFormat, this->format, ImageDimensions::getMaximumMipCount(this->fallbackWidth, this->fallbackHeight), this->frameCount, this->getFaceCount(), this->fallbackWidth, this->fallbackHeight, 1, quality);
+		const auto fallbackConverted = ImageConversion::convertSeveralImageDataToFormat(fallbackResource->data, oldFormat, this->format, ImageDimensions::getMaximumMipCount(this->fallbackWidth, this->fallbackHeight), this->frameCount, this->getFaceCount(), this->fallbackWidth, this->fallbackHeight, 1, quality, encodeASTCAsSRGB(*this));
 		this->setResourceInternal(Resource::TYPE_FALLBACK_DATA, fallbackConverted);
 	}
 }
@@ -1732,7 +1739,7 @@ void VTF::regenerateImageData(ImageFormat newFormat, uint16_t newWidth, uint16_t
 	std::vector<std::byte> newImageData;
 	if (const auto* imageResource = this->getResource(Resource::TYPE_IMAGE_DATA); imageResource && this->hasImageData()) {
 		if (this->format != newFormat && this->width == newWidth && this->height == newHeight && this->mipCount == newMipCount && this->frameCount == newFrameCount && faceCount == newFaceCount && this->depth == newDepth) {
-			newImageData = ImageConversion::convertSeveralImageDataToFormat(imageResource->data, this->format, newFormat, this->mipCount, this->frameCount, faceCount, this->width, this->height, this->depth, quality);
+			newImageData = ImageConversion::convertSeveralImageDataToFormat(imageResource->data, this->format, newFormat, this->mipCount, this->frameCount, faceCount, this->width, this->height, this->depth, quality, encodeASTCAsSRGB(*this));
 		} else {
 			newImageData.resize(ImageFormatDetails::getDataLength(this->format, newMipCount, newFrameCount, newFaceCount, newWidth, newHeight, newDepth));
 			for (int i = newMipCount - 1; i >= 0; i--) {
@@ -1775,7 +1782,7 @@ void VTF::regenerateImageData(ImageFormat newFormat, uint16_t newWidth, uint16_t
 				}
 			}
 			if (this->format != newFormat) {
-				newImageData = ImageConversion::convertSeveralImageDataToFormat(newImageData, this->format, newFormat, newMipCount, newFrameCount, newFaceCount, newWidth, newHeight, newDepth, quality);
+				newImageData = ImageConversion::convertSeveralImageDataToFormat(newImageData, this->format, newFormat, newMipCount, newFrameCount, newFaceCount, newWidth, newHeight, newDepth, quality, encodeASTCAsSRGB(*this));
 			}
 		}
 	} else {
@@ -2059,7 +2066,7 @@ bool VTF::setImage(std::span<const std::byte> imageData_, ImageFormat format_, u
 			image = ImageConversion::resizeImageData(image, format_, width_, newWidth, height_, newHeight, this->isSRGB(), this->getFlagsExtra() & FLAG_EXTRA_USING_PREMULTIPLIED_ALPHA_RESIZE, filter);
 		}
 		if (format_ != this->format) {
-			image = ImageConversion::convertImageDataToFormat(image, format_, this->format, newWidth, newHeight, quality);
+			image = ImageConversion::convertImageDataToFormat(image, format_, this->format, newWidth, newHeight, quality, encodeASTCAsSRGB(*this));
 		}
 		std::memcpy(imageResource->data.data() + offset, image.data(), image.size());
 	}
